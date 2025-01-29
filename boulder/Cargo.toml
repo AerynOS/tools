@@ -50,6 +50,9 @@ tokio.workspace = true
 url.workspace = true
 mailparse.workspace = true
 infer.workspace = true
+rayon.workspace = true
+rapidfuzz.workspace = true
+jwalk.workspace = true
 
 [lints]
 workspace = true
