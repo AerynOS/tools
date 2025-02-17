@@ -689,7 +689,7 @@ impl Client {
                 self.blit_element_item(parent, cache, name, item, stats)?;
 
                 // open the new dir
-                let newdir = fcntl::openat(parent, name, OFlag::O_RDONLY | OFlag::O_DIRECTORY, Mode::empty())?;
+                let newdir = fcntl::openat(Some(parent), name, OFlag::O_RDONLY | OFlag::O_DIRECTORY, Mode::empty())?;
                 for child in children.into_iter() {
                     self.blit_element(newdir, cache, child, progress, stats)?;
                 }
@@ -736,7 +736,7 @@ impl Client {
                     // https://github.com/serpent-os/tools/issues/372
                     0x99aa_06d3_0147_98d8_6001_c324_468d_497f => {
                         let fd = fcntl::openat(
-                            parent,
+                            Some(parent),
                             subpath,
                             OFlag::O_CREAT | OFlag::O_WRONLY | OFlag::O_TRUNC,
                             Mode::from_bits_truncate(item.layout.mode),
@@ -750,7 +750,7 @@ impl Client {
                             fp.to_str().unwrap(),
                             Some(parent),
                             subpath,
-                            nix::unistd::LinkatFlags::NoSymlinkFollow,
+                            nix::unistd::LinkatFlags::AT_SYMLINK_NOFOLLOW,
                         )?;
 
                         // Fix permissions
@@ -770,7 +770,7 @@ impl Client {
                 stats.num_symlinks += 1;
             }
             layout::Entry::Directory(_) => {
-                mkdirat(parent, subpath, Mode::from_bits_truncate(item.layout.mode))?;
+                mkdirat(Some(parent), subpath, Mode::from_bits_truncate(item.layout.mode))?;
                 stats.num_dirs += 1;
             }
 

@@ -2,16 +2,10 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use std::{
-    fmt,
-    io::{self},
-    os::fd::AsRawFd,
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{fmt, io, path::PathBuf, sync::Arc};
 
-use fs_err::{self as fs, File};
-use nix::fcntl::{flock, FlockArg};
+use fs_err::File;
+use nix::fcntl::{Flock, FlockArg};
 use thiserror::Error;
 
 /// An acquired file lock guaranteeing exclusive access
@@ -21,7 +15,7 @@ use thiserror::Error;
 /// of this ref counted lock are dropped.
 #[derive(Debug, Clone)]
 #[allow(unused)]
-pub struct Lock(Arc<File>);
+pub struct Lock(Arc<Flock<std::fs::File>>);
 
 /// Acquires a file lock at the provided path. If the file is currently
 /// locked, `block_msg` will be displayed and the function will block
@@ -31,22 +25,22 @@ pub struct Lock(Arc<File>);
 pub fn acquire(path: impl Into<PathBuf>, block_msg: impl fmt::Display) -> Result<Lock, Error> {
     let path = path.into();
 
-    let file = fs::OpenOptions::new()
+    let (file, _) = File::options()
         .create(true)
         .write(true)
         .truncate(false)
-        .open(path)?;
+        .open(path)?
+        .into_parts();
 
-    match flock(file.as_raw_fd(), FlockArg::LockExclusiveNonblock) {
-        Ok(_) => {}
-        Err(nix::errno::Errno::EWOULDBLOCK) => {
+    let flock = Flock::lock(file, FlockArg::LockExclusiveNonblock).or_else(|(file, e)| match e {
+        nix::errno::Errno::EWOULDBLOCK => {
             println!("{block_msg}");
-            flock(file.as_raw_fd(), FlockArg::LockExclusive)?;
+            Flock::lock(file, FlockArg::LockExclusive).map_err(|(_, e)| e)
         }
-        Err(e) => Err(e)?,
-    }
+        _ => Err(e),
+    })?;
 
-    Ok(Lock(Arc::new(file)))
+    Ok(Lock(Arc::new(flock)))
 }
 
 #[derive(Debug, Error)]

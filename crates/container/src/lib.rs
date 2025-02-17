@@ -110,7 +110,7 @@ impl Container {
         let rootless = !Uid::effective().is_root();
 
         // Pipe to synchronize parent & child
-        let sync = pipe()?;
+        let (sync_r, sync_w) = pipe()?;
 
         let mut flags =
             CloneFlags::CLONE_NEWNS | CloneFlags::CLONE_NEWPID | CloneFlags::CLONE_NEWIPC | CloneFlags::CLONE_NEWUTS;
@@ -123,33 +123,28 @@ impl Container {
             flags |= CloneFlags::CLONE_NEWNET;
         }
 
-        let pid = unsafe {
-            clone(
-                Box::new(|| match enter(&self, sync, &mut f) {
-                    Ok(_) => 0,
-                    // Write error back to parent process
-                    Err(error) => {
-                        let error = format_error(error);
-                        let mut pos = 0;
+        let sync_raw = (sync_r.as_raw_fd(), sync_w.as_raw_fd());
+        let clone_cb = Box::new(|| match enter(&self, sync_raw, &mut f) {
+            Ok(_) => 0,
+            // Write error back to parent process
+            Err(error) => {
+                let error = format_error(error);
+                let mut pos = 0;
 
-                        while pos < error.len() {
-                            let Ok(len) = write(sync.1, &error.as_bytes()[pos..]) else {
-                                break;
-                            };
+                while pos < error.len() {
+                    let Ok(len) = write(&sync_w, &error.as_bytes()[pos..]) else {
+                        break;
+                    };
 
-                            pos += len;
-                        }
+                    pos += len;
+                }
 
-                        let _ = close(sync.1);
+                _ = close(sync_w.as_raw_fd());
 
-                        1
-                    }
-                }),
-                &mut *addr_of_mut!(STACK),
-                flags,
-                Some(SIGCHLD),
-            )?
-        };
+                1
+            }
+        });
+        let pid = unsafe { clone(clone_cb, &mut *addr_of_mut!(STACK), flags, Some(SIGCHLD))? };
 
         // Update uid / gid map to map current user to root in container
         if rootless {
@@ -157,9 +152,9 @@ impl Container {
         }
 
         // Allow child to continue
-        write(sync.1, &[Message::Continue as u8])?;
+        write(&sync_w, &[Message::Continue as u8])?;
         // Write no longer needed
-        close(sync.1)?;
+        drop(sync_w);
 
         if self.ignore_host_sigint {
             ignore_sigint()?;
@@ -178,7 +173,7 @@ impl Container {
                 let mut buffer = [0u8; 1024];
 
                 loop {
-                    let len = read(sync.0, &mut buffer)?;
+                    let len = read(sync_r.as_raw_fd(), &mut buffer)?;
 
                     if len == 0 {
                         break;
@@ -382,7 +377,7 @@ pub fn set_term_fg(pgid: Pid) -> Result<(), nix::Error> {
         )?
     };
     // Set term fg to pid
-    let res = tcsetpgrp(io::stdin().as_raw_fd(), pgid);
+    let res = tcsetpgrp(io::stdin(), pgid);
     // Set up old handler
     unsafe { sigaction(Signal::SIGTTOU, &prev_handler)? };
 

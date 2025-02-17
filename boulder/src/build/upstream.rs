@@ -127,7 +127,7 @@ impl Installed {
                 let target = dest_dir.join(name);
 
                 // Attempt hard link
-                let link_result = linkat(None, path, None, &target, LinkatFlags::NoSymlinkFollow);
+                let link_result = linkat(None, path, None, &target, LinkatFlags::AT_SYMLINK_NOFOLLOW);
 
                 // Copy instead
                 if link_result.is_err() {

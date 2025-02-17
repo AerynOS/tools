@@ -96,7 +96,7 @@ pub fn list_dirs(dir: &Path) -> io::Result<Vec<PathBuf>> {
 
 pub fn hardlink_or_copy(from: &Path, to: &Path) -> io::Result<()> {
     // Attempt hard link
-    let link_result = linkat(None, from, None, to, LinkatFlags::NoSymlinkFollow);
+    let link_result = linkat(None, from, None, to, LinkatFlags::AT_SYMLINK_NOFOLLOW);
 
     // Copy instead
     if link_result.is_err() {
